@@ -3,6 +3,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import random
 
+import matplotlib
+matplotlib.rcParams['font.family'] = 'Malgun Gothic'  # 또는 'AppleGothic'
+
+
+
 def generate_balanced_pairs(df):
     df_sorted = df.sort_values(by='등수').reset_index(drop=True)
     half = len(df_sorted) // 2
