@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
+import matplotlib
 import matplotlib.pyplot as plt
 import random
 
-import matplotlib
+
 matplotlib.rcParams['font.family'] = 'Malgun Gothic'  # 또는 'AppleGothic'
 
 
