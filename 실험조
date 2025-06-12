@@ -1,0 +1,33 @@
+import streamlit as st
+import pandas as pd
+
+def generate_pairs(rank_list):
+    rank_list = sorted(rank_list)
+    num_students = len(rank_list)
+    pairs = []
+    for i in range(num_students // 2):
+        pairs.append((f"{rank_list[i]}등", f"{rank_list[-(i+1)]}등"))
+    if num_students % 2 == 1:
+        pairs.append((f"{rank_list[num_students // 2]}등", "짝 없음"))
+    return pd.DataFrame(pairs, columns=["학생 1 (등수)", "학생 2 (등수)"])
+
+st.title("반석차 기준 2인 1조 조편성 웹앱")
+
+st.markdown("""
+1. 아래 칸에 학생들의 석차를 한 줄에 하나씩 입력하세요.
+2. '조편성 결과 보기' 버튼을 누르면 자동으로 조가 편성됩니다.
+""")
+
+input_text = st.text_area("학생 석차 입력 (예: 1\n2\n3...)", height=200)
+
+if st.button("조편성 결과 보기"):
+    try:
+        rank_list = [int(line.strip()) for line in input_text.splitlines() if line.strip().isdigit()]
+        if not rank_list:
+            st.warning("등수를 한 줄에 하나씩 숫자로 입력해주세요.")
+        else:
+            result_df = generate_pairs(rank_list)
+            st.success("조편성 결과:")
+            st.dataframe(result_df, use_container_width=True)
+    except Exception as e:
+        st.error(f"오류 발생: {e}")
