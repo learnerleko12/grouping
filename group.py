@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 import random
 
 def generate_balanced_pairs(df):
@@ -52,7 +53,6 @@ def generate_balanced_trios(df):
             if i + 1 < third:
                 middle.loc[i], middle.loc[i+1] = middle.loc[i+1].copy(), middle.loc[i].copy()
                 trio[1] = middle.loc[i, '이름']
-                genders[1] = middle.loc[i, '성별']
         trios.append(trio)
 
     remaining = df_sorted.iloc[third*3:].copy()
@@ -85,7 +85,6 @@ def generate_balanced_quads(df):
                 if i + 1 < len(g1):
                     g2.loc[i], g2.loc[i+1] = g2.loc[i+1].copy(), g2.loc[i].copy()
                     names[1] = g2.loc[i, '이름']
-                    genders[1] = g2.loc[i, '성별']
                     break
         quads.append(names)
 
@@ -98,6 +97,19 @@ def generate_balanced_quads(df):
 
     columns = [f"학생 {i+1}" for i in range(4)]
     return pd.DataFrame(quads, columns=columns)
+
+def draw_seating_chart(groups, group_size, class_name):
+    fig, ax = plt.subplots(figsize=(group_size * 2.5, len(groups) * 1.2))
+    ax.axis('off')
+
+    for i, group in enumerate(groups):
+        for j, name in enumerate(group):
+            rect = plt.Rectangle((j, -i), 1, 1, fill=True, edgecolor='black', facecolor='lightblue')
+            ax.add_patch(rect)
+            ax.text(j + 0.5, -i + 0.5, name, ha='center', va='center', fontsize=10)
+
+    plt.title(f"{class_name} 좌석배치도", fontsize=14)
+    st.pyplot(fig)
 
 st.title("학생 이름과 석차 기반 다인 조편성 웹앱")
 
@@ -127,7 +139,13 @@ if uploaded_file is not None:
                         grouped = generate_balanced_quads(group)
                     grouped.insert(0, '학급', class_name)
                     result_all.append(grouped)
+
+                    # 좌석배치도 시각화 출력
+                    st.markdown(f"### {class_name} 좌석배치도")
+                    draw_seating_chart(grouped[[col for col in grouped.columns if '학생' in col]].values.tolist(), group_size, class_name)
+
                 result_df = pd.concat(result_all, ignore_index=True)
+                st.markdown("### 전체 조편성 결과")
                 st.dataframe(result_df, use_container_width=True)
         else:
             st.error(f"엑셀 파일에 {required_cols} 열이 있어야 합니다.")
