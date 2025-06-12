@@ -99,7 +99,7 @@ def generate_balanced_quads(df):
     columns = [f"학생 {i+1}" for i in range(4)]
     return pd.DataFrame(quads, columns=columns)
 
-st.title("학생 이름과 석차 기반 다인 조편성 웹앱")
+st.title(" 마장중 조편성 ")
 
 st.markdown("""
 1. 학생 이름, 등수, 학급, 성별 정보가 포함된 엑셀 파일을 업로드하세요.
