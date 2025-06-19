@@ -1,135 +1,100 @@
 import streamlit as st
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-import random
 
-def generate_balanced_pairs(df):
-    df_sorted = df.sort_values(by='등수').reset_index(drop=True)
-    half = len(df_sorted) // 2
-    top_half = df_sorted.iloc[:half].copy()
-    bottom_half = df_sorted.iloc[-half:].copy().reset_index(drop=True)
+st.title("📚 학생 좌석표 생성기")
 
-    pairs = []
-    used_bottom_indices = set()
+# 1. 구글 시트 인증 범위
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-    for idx, top_row in top_half.iterrows():
-        candidate = None
-        for b_idx, bottom_row in bottom_half.iterrows():
-            if b_idx in used_bottom_indices:
-                continue
-            if top_row.get('성별') != bottom_row.get('성별'):
-                candidate = bottom_row
-                used_bottom_indices.add(b_idx)
-                break
-        if candidate is None:
-            for b_idx, bottom_row in bottom_half.iterrows():
-                if b_idx not in used_bottom_indices:
-                    candidate = bottom_row
-                    used_bottom_indices.add(b_idx)
-                    break
-        if candidate is not None:
-            pairs.append((top_row['이름'], candidate['이름']))
+# 2. 서비스 계정 JSON 업로드
+json_keyfile = st.file_uploader("🔑 서비스 계정 키(JSON) 업로드", type="json")
 
-    if len(df_sorted) % 2 == 1:
-        pairs.append((df_sorted.iloc[half]['이름'], "짝 없음"))
+if json_keyfile is not None:
+    # 임시로 저장
+    with open("temp_key.json", "wb") as f:
+        f.write(json_keyfile.read())
 
-    return pd.DataFrame(pairs, columns=["학생 1 (이름)", "학생 2 (이름)"])
+    # 구글 인증 및 클라이언트 생성
+    creds = ServiceAccountCredentials.from_json_keyfile_name("temp_key.json", scope)
+    client = gspread.authorize(creds)
 
-def generate_balanced_trios(df):
-    df_sorted = df.sort_values(by='등수').reset_index(drop=True)
-    n = len(df_sorted)
-    group_size = 3
-    third = n // group_size
+    # 3. 구글 시트 URL 입력
+    sheet_url = st.text_input("📄 구글 시트 URL 입력")
 
-    top = df_sorted.iloc[:third].copy().reset_index(drop=True)
-    middle = df_sorted.iloc[third:2*third].copy().reset_index(drop=True)
-    bottom = df_sorted.iloc[2*third:3*third].copy().reset_index(drop=True)
+    if sheet_url:
+        try:
+            sheet = client.open_by_url(sheet_url).sheet1
+            data = sheet.get_all_records()
 
-    trios = []
-    for i in range(third):
-        trio = [top.loc[i, '이름'], middle.loc[i, '이름'], bottom.loc[i, '이름']]
-        genders = [top.loc[i, '성별'], middle.loc[i, '성별'], bottom.loc[i, '성별']]
-        if genders.count(genders[0]) == 3:
-            if i + 1 < third:
-                middle.loc[i], middle.loc[i+1] = middle.loc[i+1].copy(), middle.loc[i].copy()
-                trio[1] = middle.loc[i, '이름']
-                genders[1] = middle.loc[i, '성별']
-        trios.append(trio)
+            if len(data) == 0:
+                st.warning("시트에 데이터가 없습니다.")
+            else:
+                df = pd.DataFrame(data)
+                st.write("🎓 불러온 학생 성적 데이터", df)
 
-    remaining = df_sorted.iloc[third*3:].copy()
-    for i in range(0, len(remaining), group_size):
-        trio = remaining.iloc[i:i+group_size]['이름'].tolist()
-        while len(trio) < group_size:
-            trio.append("빈 자리")
-        trios.append(trio)
+                # 4. 조 크기 선택
+                group_size = st.selectbox("👥 몇 명씩 조로 묶을까요?", [2, 3, 4], index=0)
 
-    columns = [f"학생 {i+1}" for i in range(group_size)]
-    return pd.DataFrame(trios, columns=columns)
+                # 5. 성적 순으로 정렬 (내림차순, 1등이 위)
+                # 성적 컬럼명은 데이터에 따라 조정 필요 (예: '점수', '성적', 'score')
+                # 여기서는 '성적' 컬럼명 가정
+                if "score" not in df.columns:
+                    st.error("데이터에 'score' 컬럼이 없습니다. 컬럼명을 확인해주세요.")
+                else:
+                    df_sorted = df.sort_values(by="score", ascending=False).reset_index(drop=True)
 
-def generate_balanced_quads(df):
-    df_sorted = df.sort_values(by='등수').reset_index(drop=True)
-    n = len(df_sorted)
-    quarter = n // 4
+                    # 6. 좌석표 짝짓기 함수
+                    def make_pairs(df_sorted, group_size):
+                        students = df_sorted["이름"].tolist()
+                        scores = df_sorted["score"].tolist()
 
-    g1 = df_sorted.iloc[:quarter].copy().reset_index(drop=True)
-    g2 = df_sorted.iloc[quarter:2*quarter].copy().reset_index(drop=True)
-    g3 = df_sorted.iloc[2*quarter:3*quarter].copy().reset_index(drop=True)
-    g4 = df_sorted.iloc[3*quarter:4*quarter].copy().reset_index(drop=True)
+                        n = len(students)
+                        groups = []
 
-    quads = []
-    for i in range(min(len(g1), len(g2), len(g3), len(g4))):
-        members = [g1.loc[i], g2.loc[i], g3.loc[i], g4.loc[i]]
-        names = [m['이름'] for m in members]
-        genders = [m['성별'] for m in members]
-        if genders.count('남') == 4 or genders.count('여') == 4:
-            for j in range(1, 4):
-                if i + 1 < len(g1):
-                    g2.loc[i], g2.loc[i+1] = g2.loc[i+1].copy(), g2.loc[i].copy()
-                    names[1] = g2.loc[i, '이름']
-                    genders[1] = g2.loc[i, '성별']
-                    break
-        quads.append(names)
+                        # 기본 아이디어: 1등 ↔ 꼴찌, 2등 ↔ 꼴찌 2번째, 3등 ↔ 꼴찌 3번째 ...
+                        # 다만 group_size마다 그룹 묶기 다르게 처리
 
-    remaining = df_sorted.iloc[quarter*4:].copy()
-    for i in range(0, len(remaining), 4):
-        quad = remaining.iloc[i:i+4]['이름'].tolist()
-        while len(quad) < 4:
-            quad.append("빈 자리")
-        quads.append(quad)
+                        # 그룹 수
+                        group_count = n // group_size
+                        remainder = n % group_size
 
-    columns = [f"학생 {i+1}" for i in range(4)]
-    return pd.DataFrame(quads, columns=columns)
+                        # 인덱스 포인터
+                        left = 0
+                        right = n - 1
 
-st.title(" 마장중 조편성 ")
+                        while left <= right:
+                            group = []
+                            # 그룹에 한 명씩 왼쪽(높은 성적)에서, 오른쪽(낮은 성적)에서 채우기
+                            for _ in range(group_size):
+                                if left <= right:
+                                    group.append(students[left])
+                                    left += 1
+                                if len(group) < group_size and left <= right:
+                                    group.append(students[right])
+                                    right -= 1
+                            groups.append(group)
 
-st.markdown("""
-1. 학생 이름, 등수, 학급, 성별 정보가 포함된 엑셀 파일을 업로드하세요.
-2. 파일에는 반드시 '이름', '등수', '학급', '성별' 열이 있어야 합니다.
-3. 2인 1조는 상하위 그룹에서 성별 다르게, 3인 1조는 상중하 그룹에서 성별 다양하게, 4인 1조는 4등분된 그룹에서 성별 다양하게 조를 구성합니다.
-""")
+                        # 만약 잉여 학생이 있으면 마지막 그룹에 추가
+                        if remainder > 0 and groups:
+                            last_group = groups[-1]
+                            if len(last_group) < group_size:
+                                # 이미 처리함, 어차피 last group은 다 차있을 수 있음
+                                pass
 
-uploaded_file = st.file_uploader("엑셀 파일 업로드", type=["xlsx"])
-group_size = st.selectbox("몇 명이 한 조인가요?", options=[2, 3, 4], index=0)
+                        return groups
 
-if uploaded_file is not None:
-    try:
-        df = pd.read_excel(uploaded_file)
-        required_cols = ['이름', '등수', '학급', '성별']
-        if all(col in df.columns for col in required_cols):
-            st.success("파일이 성공적으로 업로드되었습니다.")
-            if st.button("조편성 결과 보기"):
-                result_all = []
-                for class_name, group in df.groupby('학급'):
-                    if group_size == 2:
-                        grouped = generate_balanced_pairs(group)
-                    elif group_size == 3:
-                        grouped = generate_balanced_trios(group)
-                    elif group_size == 4:
-                        grouped = generate_balanced_quads(group)
-                    grouped.insert(0, '학급', class_name)
-                    result_all.append(grouped)
-                result_df = pd.concat(result_all, ignore_index=True)
-                st.dataframe(result_df, use_container_width=True)
-        else:
-            st.error(f"엑셀 파일에 {required_cols} 열이 있어야 합니다.")
-    except Exception as e:
-        st.error(f"파일을 읽는 중 오류 발생: {e}")
+                    groups = make_pairs(df_sorted, group_size)
+
+                    # 7. 좌석표 출력
+                    st.subheader("🪑 좌석표 결과")
+
+                    for i, group in enumerate(groups):
+                        st.write(f"**조 {i+1}**: {', '.join(group)}")
+
+        except Exception as e:
+            st.error(f"시트 데이터 불러오기 중 오류 발생: {e}")
+
+else:
+    st.info("서비스 계정 키(JSON) 파일을 업로드해주세요.")
