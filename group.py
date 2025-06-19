@@ -4,6 +4,16 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+import matplotlib.font_manager as fm
+
+# 경로 직접 지정
+font_path = 'C:/Windows/Fonts/malgun.ttf'
+fontprop = fm.FontProperties(fname=font_path)
+rcParams['font.family'] = fontprop.get_name()
+
+
 st.title("📚 학급별 학생 좌석표 생성기 (그림 포함)")
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
