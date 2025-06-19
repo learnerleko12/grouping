@@ -1,93 +1,109 @@
 import streamlit as st
+import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import font_manager, rcParams
+import random
 
-import matplotlib.pyplot as plt
-from matplotlib import rcParams
-import matplotlib.font_manager as fm
+# 한글 폰트 설정 (윈도우용, 맑은 고딕)
+font_path = "C:/Windows/Fonts/malgun.ttf"
+font_name = font_manager.FontProperties(fname=font_path).get_name()
+rcParams['font.family'] = font_name
 
-# 경로 직접 지정
-font_path = 'C:/Windows/Fonts/malgun.ttf'
-fontprop = fm.FontProperties(fname=font_path)
-rcParams['font.family'] = fontprop.get_name()
-
-
-st.title("📚 학급별 학생 좌석표 생성기 (그림 포함)")
-
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-json_keyfile = st.file_uploader("🔑 서비스 계정 키(JSON) 업로드", type="json")
-
-if json_keyfile is not None:
-    with open("temp_key.json", "wb") as f:
-        f.write(json_keyfile.read())
-
-    creds = ServiceAccountCredentials.from_json_keyfile_name("temp_key.json", scope)
+# Google Sheets 연동
+@st.cache_data
+def load_data(sheet_name):
+    scope = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("your_google_credentials.json", scope)
     client = gspread.authorize(creds)
+    sheet = client.open("자리배치표데이터").worksheet(sheet_name)
+    data = pd.DataFrame(sheet.get_all_records())
+    return data
 
-    sheet_url = st.text_input("📄 구글 시트 URL 입력")
+# 조 편성
+def group_students(df, group_size):
+    df = df.sort_values(by="과학점수", ascending=False).reset_index(drop=True)
+    n = len(df)
+    groups = []
+    if group_size == 2:
+        for i in range(n // 2):
+            pair = pd.concat([df.iloc[[i]], df.iloc[[-(i+1)]]])
+            groups.append(pair)
+    elif group_size == 3:
+        third = n // 3
+        for i in range(third):
+            group = pd.concat([df.iloc[[i]], df.iloc[[third+i]], df.iloc[[-(i+1)]]])
+            groups.append(group)
+    elif group_size == 4:
+        quarter = n // 4
+        for i in range(quarter):
+            group = pd.concat([
+                df.iloc[[i]],
+                df.iloc[[quarter+i]],
+                df.iloc[[2*quarter+i]],
+                df.iloc[[-(i+1)]]
+            ])
+            groups.append(group)
+    return groups
 
-    if sheet_url:
-        try:
-            sheet = client.open_by_url(sheet_url).sheet1
-            data = sheet.get_all_records()
-            if not data:
-                st.warning("시트에 데이터가 없습니다.")
-            else:
-                df = pd.DataFrame(data)
-                st.write("🎓 불러온 학생 데이터", df)
+# 성별 섞기
+def balance_gender(group):
+    males = group[group['성별'] == '남']
+    females = group[group['성별'] == '여']
+    if len(males) == len(females):
+        return pd.concat([males, females])
+    else:
+        return group.sample(frac=1)
 
-                if "학급" not in df.columns or "성적" not in df.columns or "이름" not in df.columns:
-                    st.error("'학급', '성적', '이름' 컬럼이 모두 있어야 합니다.")
-                else:
-                    group_size = st.selectbox("👥 몇 명씩 조로 묶을까요?", [2, 3, 4], index=0)
+# 좌석도 시각화
+def draw_seating_chart(groups, rows, cols):
+    fig, ax = plt.subplots(figsize=(cols, rows))
+    ax.axis("off")
 
-                    classes = df["학급"].unique()
-                    st.write(f"총 학급 수: {len(classes)}")
+    total_seats = rows * cols
+    flat_list = []
+    for i, group in enumerate(groups, 1):
+        names = "/".join(group['이름'].tolist())
+        flat_list.append(f"{i}조\n{names}")
+    while len(flat_list) < total_seats:
+        flat_list.append("")
 
-                    def make_pairs(df_sorted, group_size):
-                        students = df_sorted["이름"].tolist()
-                        n = len(students)
-                        groups = []
-                        left, right = 0, n - 1
-                        while left <= right:
-                            group = []
-                            for _ in range(group_size):
-                                if left <= right:
-                                    group.append(students[left])
-                                    left += 1
-                                if len(group) < group_size and left <= right:
-                                    group.append(students[right])
-                                    right -= 1
-                            groups.append(group)
-                        return groups
+    for i in range(rows):
+        for j in range(cols):
+            idx = i * cols + j
+            ax.text(j, -i, flat_list[idx], ha='center', va='center',
+                    bbox=dict(boxstyle="round,pad=0.5", fc="lightblue", ec="gray"))
 
-                    for cls in classes:
-                        st.subheader(f"🏫 학급: {cls}")
-                        df_cls = df[df["학급"] == cls].sort_values(by="성적", ascending=False).reset_index(drop=True)
+    ax.set_xlim(-0.5, cols - 0.5)
+    ax.set_ylim(-rows + 0.5, 0.5)
+    st.pyplot(fig)
 
-                        groups = make_pairs(df_cls, group_size)
+# 🌐 Streamlit UI
+st.title("🧠 과학 성적 기반 학급별 자리배치표")
 
-                        # 좌석 배치 시각화
-                        fig, ax = plt.subplots(figsize=(group_size*2, len(groups)*1.5))
-                        ax.set_xlim(0, group_size)
-                        ax.set_ylim(0, len(groups))
-                        ax.invert_yaxis()
-                        ax.axis('off')
+sheet_name = st.text_input("구글 시트에서 불러올 반 이름을 입력하세요 (예: 1반)", value="1반")
+group_size = st.radio("조 단위 선택", [2, 3, 4], horizontal=True)
 
-                        for row_i, group in enumerate(groups):
-                            for col_i, student in enumerate(group):
-                                # 사각형 박스 그리기
-                                rect = plt.Rectangle((col_i, row_i), 1, 1, fill=True, edgecolor='black', facecolor='lightblue')
-                                ax.add_patch(rect)
-                                # 학생 이름 텍스트 중앙 배치
-                                ax.text(col_i + 0.5, row_i + 0.5, student, ha='center', va='center', fontsize=10)
+cols = st.number_input("좌석 배치 - 열(가로)", min_value=1, max_value=10, value=6)
+rows = st.number_input("좌석 배치 - 행(세로)", min_value=1, max_value=10, value=5)
 
-                        plt.title(f"{cls} 학급 좌석 배치 ({group_size}명씩 조)", fontsize=14)
-                        st.pyplot(fig)
+if sheet_name:
+    try:
+        df = load_data(sheet_name)
+        st.success(f"✅ {sheet_name} 데이터 불러오기 성공")
+        st.dataframe(df)
 
-        except Exception as e:
-            st.error(f"시트 데이터 불러오기 중 오류: {e}")
-else:
-    st.info("서비스 계정 키(JSON) 파일을 업로드해주세요.")
+        groups = group_students(df, group_size)
+        st.markdown("### 📋 조 편성 결과")
+        for i, group in enumerate(groups, 1):
+            st.write(f"#### {i}조")
+            balanced = balance_gender(group)
+            st.table(balanced.reset_index(drop=True))
+
+        st.markdown("### 🪑 좌석 배치 시각화")
+        draw_seating_chart(groups, rows, cols)
+
+    except Exception as e:
+        st.error(f"❌ 오류: {e}")
