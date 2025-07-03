@@ -6,3 +6,7 @@ xlsxwriter
 
 gspread
 oauth2client
+
+numpy
+
+
